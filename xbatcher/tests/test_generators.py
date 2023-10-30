@@ -59,23 +59,26 @@ def test_constructor_dataarray():
 
 @pytest.mark.parametrize("input_size", [5, 6])
 def test_generator_length(sample_ds_1d, input_size):
-    """ "
+    """
     Test the length of the batch generator.
     """
     bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size})
     validate_generator_length(bg)
 
 
-def test_generator_getitem(sample_ds_1d):
+@pytest.mark.parametrize("input_size", [6, 10])
+def test_generator_getitem(sample_ds_1d, input_size):
     """
     Test indexing on the batch generator.
     """
-    bg = BatchGenerator(sample_ds_1d, input_dims={"x": 10})
+    bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size})
     first_batch = bg[0]
     last_batch = bg[-1]
+
     expected_dims = get_batch_dimensions(bg)
     validate_batch_dimensions(expected_dims=expected_dims, batch=first_batch)
     validate_batch_dimensions(expected_dims=expected_dims, batch=last_batch)
+
     # raises IndexError for out of range index
     with pytest.raises(IndexError, match=r"list index out of range"):
         bg[9999999]
@@ -85,7 +88,7 @@ def test_generator_getitem(sample_ds_1d):
         bg[[1, 2, 3]]
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_1d(sample_ds_1d, input_size):
     """
     Test batch generation for a 1D dataset using ``input_dims``.
@@ -101,7 +104,7 @@ def test_batch_1d(sample_ds_1d, input_size):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_1d_concat(sample_ds_1d, input_size):
     """
     Test batch generation for a 1D dataset using ``input_dims`` and concat_input_dims``.
@@ -117,13 +120,14 @@ def test_batch_1d_concat(sample_ds_1d, input_size):
         assert "x" in ds_batch.coords
 
 
-def test_batch_1d_concat_duplicate_dim(sample_ds_1d):
+@pytest.mark.parametrize("input_size,batch_size", [(5, 10), (6, 10)])
+def test_batch_1d_concat_duplicate_dim(sample_ds_1d, input_size, batch_size):
     """
     Test batch generation for a 1D dataset using ``concat_input_dims`` when
     the same dimension occurs in ``input_dims`` and `batch_dims``
     """
     bg = BatchGenerator(
-        sample_ds_1d, input_dims={"x": 5}, batch_dims={"x": 10}, concat_input_dims=True
+        sample_ds_1d, input_dims={"x": input_size}, batch_dims={"x": batch_size}, concat_input_dims=True
     )
     validate_generator_length(bg)
     expected_dims = get_batch_dimensions(bg)
@@ -132,7 +136,7 @@ def test_batch_1d_concat_duplicate_dim(sample_ds_1d):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_1d_no_coordinate(sample_ds_1d, input_size):
     """
     Test batch generation for a 1D dataset without coordinates using ``input_dims``.
@@ -151,7 +155,7 @@ def test_batch_1d_no_coordinate(sample_ds_1d, input_size):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_1d_concat_no_coordinate(sample_ds_1d, input_size):
     """
     Test batch generation for a 1D dataset without coordinates using ``input_dims``
@@ -192,7 +196,7 @@ def test_batch_1d_overlap(sample_ds_1d, input_overlap):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_3d_1d_input(sample_ds_3d, input_size):
     """
     Test batch generation for a 3D dataset with 1 dimension
@@ -253,7 +257,7 @@ def test_batch_3d_1d_input_batch_concat_duplicate_dim(sample_ds_3d):
     """
     bg = BatchGenerator(
         sample_ds_3d,
-        input_dims={"x": 5, "y": 10},
+        input_dims={"x": 6, "y": 10},
         batch_dims={"x": 10, "y": 20},
         concat_input_dims=True,
     )
@@ -263,7 +267,7 @@ def test_batch_3d_1d_input_batch_concat_duplicate_dim(sample_ds_3d):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_3d_2d_input(sample_ds_3d, input_size):
     """
     Test batch generation for a 3D dataset with 2 dimensions
@@ -288,7 +292,7 @@ def test_batch_3d_2d_input(sample_ds_3d, input_size):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [5, 10])
+@pytest.mark.parametrize("input_size", [6, 10])
 def test_batch_3d_2d_input_concat(sample_ds_3d, input_size):
     """
     Test batch generation for a 3D dataset with 2 dimensions
