@@ -264,7 +264,7 @@ def test_hardcoded():
             "x": (["x"], np.arange(dimx)),
             "y": (["y"], np.arange(dimy)),
             "t": (["t"], np.arange(dimt)),
-        }
+        },
     )
 
     bgen = BatchGenerator(
@@ -290,24 +290,56 @@ def test_hardcoded():
             assert np.all(batch.data.shape == batch_size)
 
         if n == 0:
-            test = np.array([
-                [0, 1, 2, 3, 4],
-                [8, 9, 10, 11, 12],
-                [16, 17, 18, 19, 20],
-                [24, 25, 26, 27, 28],
-                [32, 33, 34, 35, 36],
-            ])
+            test = np.array(
+                [
+                    [0, 1, 2, 3, 4],
+                    [8, 9, 10, 11, 12],
+                    [16, 17, 18, 19, 20],
+                    [24, 25, 26, 27, 28],
+                    [32, 33, 34, 35, 36],
+                ]
+            )
             assert np.all(test == batch.isel(t=0).data.to_numpy())
 
         if n == 6:
-            test = np.array([
-                [24, 25, 26, 27, 28],
-                [32, 33, 34, 35, 36],
-                [40, 41, 42, 43, 44],
-                [48, 49, 50, 51, 52],
-                [56, 57, 58, 59, 60],
-            ]) + (dimx * dimy)
+            test = np.array(
+                [
+                    [24, 25, 26, 27, 28],
+                    [32, 33, 34, 35, 36],
+                    [40, 41, 42, 43, 44],
+                    [48, 49, 50, 51, 52],
+                    [56, 57, 58, 59, 60],
+                ]
+            ) + (dimx * dimy)
             assert np.all(test == batch.isel(t=1).data.to_numpy())
+
+
+def test_every_pixel_is_seen():
+    dimt = 19
+    dimx = 17
+    dimy = 13
+    data = np.arange(dimx * dimy * dimt).reshape((dimt, dimx, dimy))
+    ds = xr.Dataset(
+        {"data": (["t", "x", "y"], data)},
+        {
+            "x": (["x"], np.arange(dimx)),
+            "y": (["y"], np.arange(dimy)),
+            "t": (["t"], np.arange(dimt)),
+        },
+    )
+
+    bgen = BatchGenerator(
+        ds,
+        input_dims={"x": 7, "y": 3},
+        batch_dims={"t": 11},
+        pad_input=True,
+        drop_remainder=False,
+    )
+
+    seen_values = np.zeros_like(data).reshape(-1)
+    for batch in bgen:
+        seen_values[batch.data.to_numpy().reshape(-1)] = 1
+    assert np.all(seen_values)
 
 
 def test_preload_batch_false(sample_ds_1d):
