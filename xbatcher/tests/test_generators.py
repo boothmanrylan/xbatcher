@@ -42,6 +42,7 @@ def sample_ds_3d():
         {
             "x": (["x"], np.arange(shape[-1])),
             "y": (["y"], np.arange(shape[-2])),
+            "time": (["time"], np.arange(shape[-3])),
         },
     )
     return ds
@@ -57,35 +58,52 @@ def test_constructor_dataarray():
     xr.testing.assert_identical(da, bg.ds)
 
 
-@pytest.mark.parametrize("input_size", [5, 6])
-def test_generator_length(sample_ds_1d, input_size):
+@pytest.mark.parametrize(
+    "input_size,pad_input", [(5, True), (5, False), (6, True), (6, False)]
+)
+def test_generator_length(sample_ds_1d, input_size, pad_input):
     """
     Test the length of the batch generator.
     """
-    bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size})
+    bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size}, pad_input=pad_input)
     validate_generator_length(bg)
 
 
-@pytest.mark.parametrize("input_size", [6, 10])
-def test_generator_getitem(sample_ds_1d, input_size):
+@pytest.mark.parametrize(
+    "input_size,pad_input", [(6, True), (6, False), (10, True), (10, False)]
+)
+def test_getitem_first(sample_ds_1d, input_size, pad_input):
     """
     Test indexing on the batch generator.
     """
-    bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size})
-    first_batch = bg[0]
-    last_batch = bg[-1]
+    bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size}, pad_input=pad_input)
 
+    first_batch = bg[0]
     expected_dims = get_batch_dimensions(bg)
     validate_batch_dimensions(expected_dims=expected_dims, batch=first_batch)
+
+
+@pytest.mark.parametrize(
+    "input_size,pad_input", [(6, True), (6, False), (10, True), (10, False)]
+)
+def test_getitem_last(sample_ds_1d, input_size, pad_input):
+    bg = BatchGenerator(sample_ds_1d, input_dims={"x": input_size}, pad_input=pad_input)
+
+    last_batch = bg[-1]
+    expected_dims = get_batch_dimensions(bg)
     validate_batch_dimensions(expected_dims=expected_dims, batch=last_batch)
 
-    # raises IndexError for out of range index
-    with pytest.raises(IndexError, match=r"list index out of range"):
-        bg[9999999]
 
-    # raises NotImplementedError for iterable index
+def test_non_integer_indexing(sample_ds_1d):
+    bg = BatchGenerator(sample_ds_1d, input_dims={"x": 6})
     with pytest.raises(NotImplementedError):
         bg[[1, 2, 3]]
+
+
+def test_index_error(sample_ds_1d):
+    bg = BatchGenerator(sample_ds_1d, input_dims={"x": 6})
+    with pytest.raises(IndexError, match=r"list index out of range"):
+        bg[999999]
 
 
 @pytest.mark.parametrize("input_size", [6, 10])
@@ -101,38 +119,6 @@ def test_batch_1d(sample_ds_1d, input_size):
         expected_slice = slice(input_size * n, input_size * (n + 1))
         ds_batch_expected = sample_ds_1d.isel(x=expected_slice)
         xr.testing.assert_identical(ds_batch_expected, ds_batch)
-        validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
-
-
-@pytest.mark.parametrize("input_size", [6, 10])
-def test_batch_1d_concat(sample_ds_1d, input_size):
-    """
-    Test batch generation for a 1D dataset using ``input_dims`` and concat_input_dims``.
-    """
-    bg = BatchGenerator(
-        sample_ds_1d, input_dims={"x": input_size}, concat_input_dims=True
-    )
-    validate_generator_length(bg)
-    expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
-        assert isinstance(ds_batch, xr.Dataset)
-        validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
-        assert "x" in ds_batch.coords
-
-
-@pytest.mark.parametrize("input_size,batch_size", [(5, 10), (6, 10)])
-def test_batch_1d_concat_duplicate_dim(sample_ds_1d, input_size, batch_size):
-    """
-    Test batch generation for a 1D dataset using ``concat_input_dims`` when
-    the same dimension occurs in ``input_dims`` and `batch_dims``
-    """
-    bg = BatchGenerator(
-        sample_ds_1d, input_dims={"x": input_size}, batch_dims={"x": batch_size}, concat_input_dims=True
-    )
-    validate_generator_length(bg)
-    expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
-        assert isinstance(ds_batch, xr.Dataset)
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
@@ -153,26 +139,6 @@ def test_batch_1d_no_coordinate(sample_ds_1d, input_size):
         ds_batch_expected = ds_dropped.isel(x=expected_slice)
         xr.testing.assert_identical(ds_batch_expected, ds_batch)
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
-
-
-@pytest.mark.parametrize("input_size", [6, 10])
-def test_batch_1d_concat_no_coordinate(sample_ds_1d, input_size):
-    """
-    Test batch generation for a 1D dataset without coordinates using ``input_dims``
-    and ``concat_input_dims``.
-
-    Fix for https://github.com/xarray-contrib/xbatcher/issues/3.
-    """
-    ds_dropped = sample_ds_1d.drop_vars("x")
-    bg = BatchGenerator(
-        ds_dropped, input_dims={"x": input_size}, concat_input_dims=True
-    )
-    validate_generator_length(bg)
-    expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
-        assert isinstance(ds_batch, xr.Dataset)
-        validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
-        assert "x" not in ds_batch.coords
 
 
 @pytest.mark.parametrize("input_overlap", [1, 4])
@@ -196,13 +162,15 @@ def test_batch_1d_overlap(sample_ds_1d, input_overlap):
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
-@pytest.mark.parametrize("input_size", [6, 10])
-def test_batch_3d_1d_input(sample_ds_3d, input_size):
+@pytest.mark.parametrize(
+    "input_size,pad_input", [(6, True), (6, False), (10, True), (10, False)]
+)
+def test_batch_3d_1d_input(sample_ds_3d, input_size, pad_input):
     """
     Test batch generation for a 3D dataset with 1 dimension
     specified in ``input_dims``.
     """
-    bg = BatchGenerator(sample_ds_3d, input_dims={"x": input_size})
+    bg = BatchGenerator(sample_ds_3d, input_dims={"x": input_size}, pad_input=pad_input)
     validate_generator_length(bg)
     expected_dims = get_batch_dimensions(bg)
     for n, ds_batch in enumerate(bg):
@@ -218,52 +186,11 @@ def test_batch_3d_1d_input(sample_ds_3d, input_size):
             .stack(sample=["time", "y"])
             .transpose("sample", "x")
         )
+        if n == len(bg) - 1 and pad_input:
+            ds_batch_expected = ds_batch_expected.pad(
+                {"x": (0, input_size - ds_batch_expected.sizes["x"])}, mode="edge"
+            )
         xr.testing.assert_identical(ds_batch_expected, ds_batch)
-        validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
-
-
-@pytest.mark.parametrize(
-    "concat",
-    [
-        True,
-        pytest.param(
-            False,
-            marks=pytest.mark.xfail(
-                reason="Bug described in https://github.com/xarray-contrib/xbatcher/issues/126"
-            ),
-        ),
-    ],
-)
-def test_batch_3d_1d_input_batch_dims(sample_ds_3d, concat):
-    """
-    Test batch generation for a 3D dataset using ``input_dims`` and batch_dims``.
-    """
-    bg = BatchGenerator(
-        sample_ds_3d,
-        input_dims={"x": 5, "y": 10},
-        batch_dims={"time": 2},
-        concat_input_dims=concat,
-    )
-    validate_generator_length(bg)
-    expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
-        validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
-
-
-def test_batch_3d_1d_input_batch_concat_duplicate_dim(sample_ds_3d):
-    """
-    Test batch generation for a 3D dataset using ``concat_input_dims`` when
-    the same dimension occurs in ``input_dims`` and batch_dims``.
-    """
-    bg = BatchGenerator(
-        sample_ds_3d,
-        input_dims={"x": 6, "y": 10},
-        batch_dims={"x": 10, "y": 20},
-        concat_input_dims=True,
-    )
-    validate_generator_length(bg)
-    expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
 
@@ -273,7 +200,7 @@ def test_batch_3d_2d_input(sample_ds_3d, input_size):
     Test batch generation for a 3D dataset with 2 dimensions
     specified in ``input_dims``.
     """
-    x_input_size = 20
+    x_input_size = 17
     bg = BatchGenerator(sample_ds_3d, input_dims={"y": input_size, "x": x_input_size})
     validate_generator_length(bg)
     expected_dims = get_batch_dimensions(bg)
@@ -293,33 +220,94 @@ def test_batch_3d_2d_input(sample_ds_3d, input_size):
 
 
 @pytest.mark.parametrize("input_size", [6, 10])
-def test_batch_3d_2d_input_concat(sample_ds_3d, input_size):
+def test_batch_3d_2d_input_w_batch_dims(sample_ds_3d, input_size):
     """
-    Test batch generation for a 3D dataset with 2 dimensions
-    specified in ``input_dims`` using ``concat_input_dims``.
+    Test batch generation for a 3D dataset with 2 dimensions specified in
+    ``input_dims`` and a 3rd dimension specifed in ``batch_dims``.
     """
-    x_input_size = 20
+    x_input_size = 17
+    time_batch_size = 4
     bg = BatchGenerator(
         sample_ds_3d,
         input_dims={"y": input_size, "x": x_input_size},
-        concat_input_dims=True,
+        batch_dims={"time": time_batch_size},
     )
     validate_generator_length(bg)
     expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
-        assert isinstance(ds_batch, xr.Dataset)
+    for n, ds_batch in enumerate(bg):
+        yn, xn, tn = np.unravel_index(
+            n,
+            (
+                (sample_ds_3d.dims["y"] // input_size),
+                (sample_ds_3d.dims["x"] // x_input_size),
+                (sample_ds_3d.dims["time"] // time_batch_size),
+            ),
+        )
+        expected_xslice = slice(x_input_size * xn, x_input_size * (xn + 1))
+        expected_yslice = slice(input_size * yn, input_size * (yn + 1))
+        expected_tslice = slice(time_batch_size * tn, time_batch_size * (tn + 1))
+        ds_batch_expected = sample_ds_3d.isel(
+            x=expected_xslice, y=expected_yslice, time=expected_tslice
+        )
+        xr.testing.assert_identical(ds_batch_expected, ds_batch)
         validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
 
-    bg = BatchGenerator(
-        sample_ds_3d,
-        input_dims={"time": input_size, "x": x_input_size},
-        concat_input_dims=True,
+
+def test_hardcoded():
+    dimt = 10
+    dimx = 12
+    dimy = 8
+    data = np.arange(dimx * dimy * dimt).reshape((dimt, dimx, dimy))
+    ds = xr.Dataset(
+        {"data": (["t", "x", "y"], data)},
+        {
+            "x": (["x"], np.arange(dimx)),
+            "y": (["y"], np.arange(dimy)),
+            "t": (["t"], np.arange(dimt)),
+        }
     )
-    validate_generator_length(bg)
-    expected_dims = get_batch_dimensions(bg)
-    for ds_batch in bg:
-        assert isinstance(ds_batch, xr.Dataset)
-        validate_batch_dimensions(expected_dims=expected_dims, batch=ds_batch)
+
+    bgen = BatchGenerator(
+        ds,
+        input_dims={"x": 5, "y": 5},
+        input_overlap={"x": 2, "y": 2},
+        batch_dims={"t": 4},
+        pad_input=True,
+        drop_remainder=False,
+    )
+
+    batch_size = (4, 5, 5)
+    last_batch_size = (2, 5, 5)
+    num_batches = 4 * 3 * 2
+
+    assert len(bgen) == num_batches
+
+    for n, batch in enumerate(bgen):
+        # every third batch will be partial
+        if (n + 1) % 3 == 0 and n > 0:
+            assert np.all(batch.data.shape == last_batch_size)
+        else:
+            assert np.all(batch.data.shape == batch_size)
+
+        if n == 0:
+            test = np.array([
+                [0, 1, 2, 3, 4],
+                [8, 9, 10, 11, 12],
+                [16, 17, 18, 19, 20],
+                [24, 25, 26, 27, 28],
+                [32, 33, 34, 35, 36],
+            ])
+            assert np.all(test == batch.isel(t=0).data.to_numpy())
+
+        if n == 6:
+            test = np.array([
+                [24, 25, 26, 27, 28],
+                [32, 33, 34, 35, 36],
+                [40, 41, 42, 43, 44],
+                [48, 49, 50, 51, 52],
+                [56, 57, 58, 59, 60],
+            ]) + (dimx * dimy)
+            assert np.all(test == batch.isel(t=1).data.to_numpy())
 
 
 def test_preload_batch_false(sample_ds_1d):
@@ -362,55 +350,3 @@ def test_input_overlap_exceptions(sample_ds_1d):
     with pytest.raises(ValueError) as e:
         BatchGenerator(sample_ds_1d, input_dims={"x": 10}, input_overlap={"x": 20})
         assert len(e) == 1
-
-
-@pytest.mark.parametrize("preload", [True, False])
-def test_batcher_cached_getitem(sample_ds_1d, preload) -> None:
-    pytest.importorskip("zarr")
-    cache: Dict[str, Any] = {}
-
-    def preproc(ds):
-        processed = ds.load().chunk(-1)
-        processed.attrs["foo"] = "bar"
-        return processed
-
-    bg = BatchGenerator(
-        sample_ds_1d,
-        input_dims={"x": 10},
-        cache=cache,
-        cache_preprocess=preproc,
-        preload_batch=preload,
-    )
-
-    # first batch
-    assert bg[0].sizes["x"] == 10
-    ds_no_cache = bg[1]
-    # last batch
-    assert bg[-1].sizes["x"] == 10
-
-    assert "0/.zgroup" in cache
-
-    # now from cache
-    # first batch
-    assert bg[0].sizes["x"] == 10
-    # last batch
-    assert bg[-1].sizes["x"] == 10
-    ds_cache = bg[1]
-
-    assert ds_no_cache.attrs["foo"] == "bar"
-    assert ds_cache.attrs["foo"] == "bar"
-
-    xr.testing.assert_equal(ds_no_cache, ds_cache)
-    xr.testing.assert_identical(ds_no_cache, ds_cache)
-
-    # without preprocess func
-    bg = BatchGenerator(
-        sample_ds_1d, input_dims={"x": 10}, cache=cache, preload_batch=preload
-    )
-    assert bg.cache_preprocess is None
-    assert bg[0].sizes["x"] == 10
-    ds_no_cache = bg[1]
-    assert "1/.zgroup" in cache
-    ds_cache = bg[1]
-    xr.testing.assert_equal(ds_no_cache, ds_cache)
-    xr.testing.assert_identical(ds_no_cache, ds_cache)
