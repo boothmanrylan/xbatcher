@@ -314,7 +314,8 @@ def test_hardcoded():
             assert np.all(test == batch.isel(t=1).data.to_numpy())
 
 
-def test_every_pixel_is_seen():
+@pytest.mark.parametrize("overlap", [0, 3])
+def test_every_pixel_is_seen(overlap):
     dimt = 19
     dimx = 17
     dimy = 13
@@ -331,6 +332,7 @@ def test_every_pixel_is_seen():
     bgen = BatchGenerator(
         ds,
         input_dims={"x": 7, "y": 3},
+        input_overlap={"x": overlap},
         batch_dims={"t": 11},
         pad_input=True,
         drop_remainder=False,
