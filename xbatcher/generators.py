@@ -71,7 +71,10 @@ class BatchGenerator:
             if key in self.input_dims:
                 raise ValueError(duplicate_key_msg(key))
             if val > self.ds.sizes[key]:
-                raise ValueError(dimension_too_large_msg("batch", key))
+                if drop_remainder:
+                    raise ValueError(dimension_too_large_msg("batch", key))
+                else:
+                    self.batch_dims[key] = self.ds.sizes[key]
 
         self.input_overlap = {} if input_overlap is None else input_overlap
         for key, val in self.input_overlap.items():
